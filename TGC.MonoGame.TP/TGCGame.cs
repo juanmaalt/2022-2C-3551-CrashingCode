@@ -1,7 +1,10 @@
 ﻿using System;
+using System.Diagnostics;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using TGC.MonoGame.Samples.Geometries.Textures;
 
 namespace TGC.MonoGame.TP
 {
@@ -18,6 +21,7 @@ namespace TGC.MonoGame.TP
         public const string ContentFolderSounds = "Sounds/";
         public const string ContentFolderSpriteFonts = "SpriteFonts/";
         public const string ContentFolderTextures = "Textures/";
+        public const string ContentRacingCar = ContentFolder3D + "RacingCarA/";
 
         /// <summary>
         ///     Constructor del juego.
@@ -38,10 +42,20 @@ namespace TGC.MonoGame.TP
         private SpriteBatch SpriteBatch { get; set; }
         private Model Model { get; set; }
         private Effect Effect { get; set; }
+        private Effect CarEffect { get; set; }
+        private Effect TilingEffect { get; set; }
         private float Rotation { get; set; }
         private Matrix World { get; set; }
         private Matrix View { get; set; }
         private Matrix Projection { get; set; }
+        private FollowCamera FollowCamera { get; set; }
+        private Model CarModel { get; set; }
+        private Matrix CarMatrix { get; set; }
+        private Texture2D CarTexture { get; set; }
+        private QuadPrimitive Quad { get; set; }
+        private Texture2D FloorTexture { get; set; }
+        private Matrix FloorWorld { get; set; }
+        private Matrix MovimientoCamara { get; set; }
 
         /// <summary>
         ///     Se llama una sola vez, al principio cuando se ejecuta el ejemplo.
@@ -50,6 +64,14 @@ namespace TGC.MonoGame.TP
         protected override void Initialize()
         {
             // La logica de inicializacion que no depende del contenido se recomienda poner en este metodo.
+            // Configuro el tamaño de la pantalla
+            Graphics.PreferredBackBufferWidth = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width - 100;
+            Graphics.PreferredBackBufferHeight = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height - 100;
+            Graphics.ApplyChanges();
+
+            // Creo una camaar para seguir a nuestro auto
+            FollowCamera = new FollowCamera(GraphicsDevice.Viewport.AspectRatio);
+
 
             // Apago el backface culling.
             // Esto se hace por un problema en el diseno del modelo del logo de la materia.
@@ -64,6 +86,10 @@ namespace TGC.MonoGame.TP
             View = Matrix.CreateLookAt(Vector3.UnitZ * 150, Vector3.Zero, Vector3.Up);
             Projection =
                 Matrix.CreatePerspectiveFieldOfView(MathHelper.PiOver4, GraphicsDevice.Viewport.AspectRatio, 1, 250);
+            CarMatrix = Matrix.Identity;
+            // Create World matrices for the Floor and Box
+            FloorWorld = Matrix.CreateScale(200f, 0.001f, 200f);
+            MovimientoCamara = Matrix.Identity;
 
             base.Initialize();
         }
@@ -80,11 +106,33 @@ namespace TGC.MonoGame.TP
 
             // Cargo el modelo del logo.
             Model = Content.Load<Model>(ContentFolder3D + "tgc-logo/tgc-logo");
+            CarModel = Content.Load<Model>(ContentFolder3D + "racingcara/RacingCar");
+
+            // Create the Quad
+            Quad = new QuadPrimitive(GraphicsDevice);
+            TilingEffect = Content.Load<Effect>(ContentFolderEffects + "TextureTiling");
+            TilingEffect.Parameters["Tiling"].SetValue(new Vector2(10f, 10f));
+            FloorTexture = Content.Load<Texture2D>(ContentFolderTextures + "tierra");
 
             // Cargo un efecto basico propio declarado en el Content pipeline.
             // En el juego no pueden usar BasicEffect de MG, deben usar siempre efectos propios.
             Effect = Content.Load<Effect>(ContentFolderEffects + "BasicShader");
+            CarEffect = Content.Load<Effect>(ContentFolderEffects + "BasicShader");
+           
 
+            CarTexture = Content.Load<Texture2D>(ContentFolder3D + "racingcara/Vehicle_normal");
+
+            //var effect = Effect as BasicEffect;
+
+            //effect.Texture = CarTexture;
+
+            foreach (var mesh in CarModel.Meshes)
+            {
+                // A mesh contains a collection of parts
+                foreach (var meshPart in mesh.MeshParts)
+                    // Assign the loaded effect to each part
+                    meshPart.Effect = CarEffect;
+            }
             // Asigno el efecto que cargue a cada parte del mesh.
             // Un modelo puede tener mas de 1 mesh internamente.
             foreach (var mesh in Model.Meshes)
@@ -103,6 +151,14 @@ namespace TGC.MonoGame.TP
         protected override void Update(GameTime gameTime)
         {
             // Aca deberiamos poner toda la logica de actualizacion del juego.
+            MovimientoCamara = Matrix.Identity;
+            if (Keyboard.GetState().IsKeyDown(Keys.A)) {
+                MovimientoCamara = Matrix.CreateRotationY((float)(Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.W))
+            {
+                MovimientoCamara = Matrix.CreateRotationX((float)(Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
+            }
 
             // Capturar Input teclado
             if (Keyboard.GetState().IsKeyDown(Keys.Escape))
@@ -121,21 +177,40 @@ namespace TGC.MonoGame.TP
         /// </summary>
         protected override void Draw(GameTime gameTime)
         {
+            // Floor drawing
+
+            // Set the Technique inside the TilingEffect to "BaseTiling", we want to control the tiling on the floor
+            // Using its original Texture Coordinates
+            TilingEffect.CurrentTechnique = TilingEffect.Techniques["BaseTiling"];
+            // Set the Tiling value
+            TilingEffect.Parameters["Tiling"].SetValue(new Vector2(10f, 10f));
+            // Set the WorldViewProjection matrix
+            TilingEffect.Parameters["WorldViewProjection"].SetValue(FloorWorld * Projection);
+            // Set the Texture that the Floor will use
+            TilingEffect.Parameters["Texture"].SetValue(FloorTexture);
+            Quad.Draw(TilingEffect);
+
             // Aca deberiamos poner toda la logia de renderizado del juego.
-            GraphicsDevice.Clear(Color.Black);
+            GraphicsDevice.Clear(Color.Cyan);
 
             // Para dibujar le modelo necesitamos pasarle informacion que el efecto esta esperando.
             Effect.Parameters["View"].SetValue(View);
             Effect.Parameters["Projection"].SetValue(Projection);
-            Effect.Parameters["DiffuseColor"].SetValue(Color.DarkBlue.ToVector3());
+            //Effect.Parameters["DiffuseColor"].SetValue(Color.DarkBlue.ToVector3());
             var rotationMatrix = Matrix.CreateRotationY(Rotation);
 
-            foreach (var mesh in Model.Meshes)
+            CarEffect.Parameters["View"].SetValue(View);
+            CarEffect.Parameters["Projection"].SetValue(Projection);
+
+            foreach (var mesh in CarModel.Meshes)
             {
-                World = mesh.ParentBone.Transform * rotationMatrix;
-                Effect.Parameters["World"].SetValue(World);
+                CarMatrix = mesh.ParentBone.Transform * rotationMatrix *Matrix.CreateTranslation(Vector3.Up * -50) * Matrix.CreateScale(0.2f);
+                Effect.Parameters["World"].SetValue(CarMatrix);
                 mesh.Draw();
             }
+
+            View *= MovimientoCamara;
+
         }
 
         /// <summary>
