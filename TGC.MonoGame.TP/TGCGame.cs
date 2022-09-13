@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.Xna.Framework;
@@ -21,7 +22,7 @@ namespace TGC.MonoGame.TP
         public const string ContentFolderSounds = "Sounds/";
         public const string ContentFolderSpriteFonts = "SpriteFonts/";
         public const string ContentFolderTextures = "Textures/";
-        public const string ContentRacingCar = ContentFolder3D + "RacingCarA/";
+        public const float Speed = 40f;
 
         /// <summary>
         ///     Constructor del juego.
@@ -44,7 +45,6 @@ namespace TGC.MonoGame.TP
         private Effect Effect { get; set; }
         private Effect CarEffect { get; set; }
         private Effect TilingEffect { get; set; }
-        private float Rotation { get; set; }
         private Matrix World { get; set; }
         private Matrix View { get; set; }
         private Matrix Projection { get; set; }
@@ -56,6 +56,27 @@ namespace TGC.MonoGame.TP
         private Texture2D FloorTexture { get; set; }
         private Matrix FloorWorld { get; set; }
         private Matrix MovimientoCamara { get; set; }
+        private Matrix CombatVehicleWorld { get; set; }
+        private Model CombatVehicleModel { get; set; }
+        private Matrix TankWorld { get; set; }
+        private Model TankModel { get; set; }
+        private Model BarrelModel { get; set; }
+        private Matrix BarrelWorld { get; set; }
+        private Model BoxesModel { get; set; }
+        private Matrix BoxesWorld { get; set; }
+        private Model CarrotModel { get; set; }
+        private Matrix CarrotWorld { get; set; }
+        private List<Model> Models { get; set; }
+
+        Vector3 Posicion = Vector3.Zero;
+        Vector3 CarPosicion = Vector3.Zero;
+        Quaternion CarRotation = Quaternion.Identity;
+        Matrix rotationMatrix = Matrix.Identity;
+        double Rotation = 0;
+        float CameraSpeed = 500;
+        float CarSpeed = 40;
+        Vector3 velocidad = Vector3.Zero;
+        Vector3 velocidadV = Vector3.Zero;
 
         /// <summary>
         ///     Se llama una sola vez, al principio cuando se ejecuta el ejemplo.
@@ -83,13 +104,24 @@ namespace TGC.MonoGame.TP
 
             // Configuramos nuestras matrices de la escena.
             World = Matrix.Identity;
-            View = Matrix.CreateLookAt(Vector3.UnitZ * 150, Vector3.Zero, Vector3.Up);
+            View = Matrix.CreateLookAt(Vector3.UnitZ * 150, Vector3.Zero, Vector3.Up) * Matrix.CreateTranslation(Vector3.Down * 100);
             Projection =
                 Matrix.CreatePerspectiveFieldOfView(MathHelper.PiOver4, GraphicsDevice.Viewport.AspectRatio, 1, 250);
             CarMatrix = Matrix.Identity;
             // Create World matrices for the Floor and Box
-            FloorWorld = Matrix.CreateScale(200f, 0.001f, 200f);
+            FloorWorld = Matrix.CreateScale(2000f, 0.001f, 2000f);
             MovimientoCamara = Matrix.Identity;
+
+            // Modelos decorativos
+
+            CombatVehicleWorld = Matrix.CreateScale(0.5f) * Matrix.Identity * Matrix.CreateTranslation(Vector3.Left * 10);
+
+            TankWorld = Matrix.CreateScale(.1f) * Matrix.Identity * Matrix.CreateTranslation(Vector3.Right * 100 + Vector3.Up * 40 + Vector3.Backward * 100);
+
+            BarrelWorld = Matrix.Identity * Matrix.CreateScale(15f) * Matrix.CreateTranslation(Vector3.Forward * 100 + Vector3.Up * 15);
+            BoxesWorld = Matrix.Identity * Matrix.CreateScale(0.3f) * Matrix.CreateTranslation(Vector3.Left * 100 + Vector3.Backward * 50 + Vector3.Up * 15);
+            CarrotWorld = Matrix.Identity * Matrix.CreateScale(0.3f) * Matrix.CreateTranslation(Vector3.Right * 100 + Vector3.Down * 10);
+
 
             base.Initialize();
         }
@@ -107,20 +139,25 @@ namespace TGC.MonoGame.TP
             // Cargo el modelo del logo.
             Model = Content.Load<Model>(ContentFolder3D + "tgc-logo/tgc-logo");
             CarModel = Content.Load<Model>(ContentFolder3D + "racingcara/RacingCar");
+            CombatVehicleModel = Content.Load<Model>(ContentFolder3D + "CombatVehicle/Vehicle");
+            TankModel = Content.Load<Model>(ContentFolder3D + "tank/tank");
+            BarrelModel = Content.Load<Model>(ContentFolder3D + "modelosInternet/barrel");
+            BoxesModel = Content.Load<Model>(ContentFolder3D + "modelosInternet/boxes");
+            CarrotModel = Content.Load<Model>(ContentFolder3D + "modelosInternet/Carrot");
 
             // Create the Quad
-            Quad = new QuadPrimitive(GraphicsDevice);
-            TilingEffect = Content.Load<Effect>(ContentFolderEffects + "TextureTiling");
-            TilingEffect.Parameters["Tiling"].SetValue(new Vector2(10f, 10f));
+            //TilingEffect = Content.Load<Effect>(ContentFolderEffects + "TextureTiling");
+            //TilingEffect.Parameters["Tiling"].SetValue(new Vector2(10f, 10f));
             FloorTexture = Content.Load<Texture2D>(ContentFolderTextures + "tierra");
+            Quad = new QuadPrimitive(GraphicsDevice);
 
             // Cargo un efecto basico propio declarado en el Content pipeline.
             // En el juego no pueden usar BasicEffect de MG, deben usar siempre efectos propios.
             Effect = Content.Load<Effect>(ContentFolderEffects + "BasicShader");
             CarEffect = Content.Load<Effect>(ContentFolderEffects + "BasicShader");
-           
 
-            CarTexture = Content.Load<Texture2D>(ContentFolder3D + "racingcara/Vehicle_normal");
+
+            CarTexture = Content.Load<Texture2D>(ContentFolder3D + "racingcara/Vehicle_metallic");
 
             //var effect = Effect as BasicEffect;
 
@@ -133,12 +170,46 @@ namespace TGC.MonoGame.TP
                     // Assign the loaded effect to each part
                     meshPart.Effect = CarEffect;
             }
-            // Asigno el efecto que cargue a cada parte del mesh.
-            // Un modelo puede tener mas de 1 mesh internamente.
-            foreach (var mesh in Model.Meshes)
-                // Un mesh puede tener mas de 1 mesh part (cada 1 puede tener su propio efecto).
-            foreach (var meshPart in mesh.MeshParts)
-                meshPart.Effect = Effect;
+
+            foreach (var mesh in CombatVehicleModel.Meshes)
+            {
+                // A mesh contains a collection of parts
+                foreach (var meshPart in mesh.MeshParts)
+                    // Assign the loaded effect to each part
+                    meshPart.Effect = CarEffect;
+            }
+
+            foreach (var mesh in TankModel.Meshes)
+            {
+                // A mesh contains a collection of parts
+                foreach (var meshPart in mesh.MeshParts)
+                    // Assign the loaded effect to each part
+                    meshPart.Effect = CarEffect;
+            }
+
+            foreach (var mesh in BarrelModel.Meshes)
+            {
+                // A mesh contains a collection of parts
+                foreach (var meshPart in mesh.MeshParts)
+                    // Assign the loaded effect to each part
+                    meshPart.Effect = CarEffect;
+            }
+
+            foreach (var mesh in BoxesModel.Meshes)
+            {
+                // A mesh contains a collection of parts
+                foreach (var meshPart in mesh.MeshParts)
+                    // Assign the loaded effect to each part
+                    meshPart.Effect = CarEffect;
+            }
+
+            foreach (var mesh in CarrotModel.Meshes)
+            {
+                // A mesh contains a collection of parts
+                foreach (var meshPart in mesh.MeshParts)
+                    // Assign the loaded effect to each part
+                    meshPart.Effect = CarEffect;
+            }
 
             base.LoadContent();
         }
@@ -152,13 +223,62 @@ namespace TGC.MonoGame.TP
         {
             // Aca deberiamos poner toda la logica de actualizacion del juego.
             MovimientoCamara = Matrix.Identity;
-            if (Keyboard.GetState().IsKeyDown(Keys.A)) {
+            if (Keyboard.GetState().IsKeyDown(Keys.D)) {
                 MovimientoCamara = Matrix.CreateRotationY((float)(Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.A))
+            {
+                MovimientoCamara = Matrix.CreateRotationY((float)(-Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
             }
             if (Keyboard.GetState().IsKeyDown(Keys.W))
             {
+                MovimientoCamara = Matrix.CreateRotationX((float)(-Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.S))
+            {
                 MovimientoCamara = Matrix.CreateRotationX((float)(Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
             }
+            if (Keyboard.GetState().IsKeyDown(Keys.R))
+            {
+                View = Matrix.CreateLookAt(Vector3.UnitZ * 150, Vector3.Zero, Vector3.Up) * Matrix.CreateTranslation(Vector3.Down * 100);
+            }
+
+            if (Keyboard.GetState().IsKeyDown(Keys.Left))
+            {
+                velocidad += AddSpeed(gameTime, Vector3.Left);
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.Right))
+            {
+                velocidad += AddSpeed(gameTime, Vector3.Right);
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.Up))
+            {
+                velocidad += AddSpeed(gameTime, Vector3.Forward);
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.Down))
+            {
+                velocidad += AddSpeed(gameTime, Vector3.Backward);
+            }
+            if (CarPosicion.Y > 0)
+            {
+                velocidadV.Y -= 20 * (float)gameTime.ElapsedGameTime.TotalSeconds;
+            }
+            else
+            {
+                velocidadV.Y = 0;
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.Space) && CarPosicion.Y <= 0)
+            {
+                velocidadV.Y += 10;
+            }
+
+            velocidad -= velocidad * new Vector3(1, 0, 1) * 3 * (float)gameTime.ElapsedGameTime.TotalSeconds;
+
+            CarPosicion += velocidad + velocidadV;
+
+            CarMatrix = Matrix.CreateScale(0.3f)
+                        * Matrix.CreateFromQuaternion(Quaternion.CreateFromAxisAngle(Vector3.UnitY, getAngle(velocidad)))
+                        * (Matrix.CreateTranslation(CarPosicion) /** Matrix.CreateFromAxisAngle(Vector3.UnitY, (float)Math.PI / 2)*/);
 
             // Capturar Input teclado
             if (Keyboard.GetState().IsKeyDown(Keys.Escape))
@@ -166,7 +286,6 @@ namespace TGC.MonoGame.TP
                 Exit();
 
             // Basado en el tiempo que paso se va generando una rotacion.
-            Rotation += Convert.ToSingle(gameTime.ElapsedGameTime.TotalSeconds);
 
             base.Update(gameTime);
         }
@@ -177,35 +296,73 @@ namespace TGC.MonoGame.TP
         /// </summary>
         protected override void Draw(GameTime gameTime)
         {
+            GraphicsDevice.Clear(Color.Violet);
             // Floor drawing
 
-            // Set the Technique inside the TilingEffect to "BaseTiling", we want to control the tiling on the floor
-            // Using its original Texture Coordinates
-            TilingEffect.CurrentTechnique = TilingEffect.Techniques["BaseTiling"];
-            // Set the Tiling value
-            TilingEffect.Parameters["Tiling"].SetValue(new Vector2(10f, 10f));
-            // Set the WorldViewProjection matrix
-            TilingEffect.Parameters["WorldViewProjection"].SetValue(FloorWorld * Projection);
-            // Set the Texture that the Floor will use
-            TilingEffect.Parameters["Texture"].SetValue(FloorTexture);
-            Quad.Draw(TilingEffect);
+            //Set the Technique inside the TilingEffect to "BaseTiling", we want to control the tiling on the floor
+            //Using its original Texture Coordinates
+            //TilingEffect.CurrentTechnique = TilingEffect.Techniques["BaseTiling"];
+            //// Set the Tiling value
+            //TilingEffect.Parameters["Tiling"].SetValue(new Vector2(10f, 10f));
+            //// Set the WorldViewProjection matrix
+            //TilingEffect.Parameters["WorldViewProjection"].SetValue(FloorWorld * Projection);
+            //// Set the Texture that the Floor will use
+            //TilingEffect.Parameters["Texture"].SetValue(FloorTexture);
+            //Quad.Draw(TilingEffect);
+            //QuadPrimitive quad = new QuadPrimitive(GraphicsDevice);
+            Quad.Draw(FloorWorld, View, Projection);
 
             // Aca deberiamos poner toda la logia de renderizado del juego.
-            GraphicsDevice.Clear(Color.Cyan);
 
             // Para dibujar le modelo necesitamos pasarle informacion que el efecto esta esperando.
             Effect.Parameters["View"].SetValue(View);
             Effect.Parameters["Projection"].SetValue(Projection);
             //Effect.Parameters["DiffuseColor"].SetValue(Color.DarkBlue.ToVector3());
-            var rotationMatrix = Matrix.CreateRotationY(Rotation);
+            //var rotationMatrix = Matrix.CreateRotationY(Rotation);
 
             CarEffect.Parameters["View"].SetValue(View);
             CarEffect.Parameters["Projection"].SetValue(Projection);
 
             foreach (var mesh in CarModel.Meshes)
             {
-                CarMatrix = mesh.ParentBone.Transform * rotationMatrix *Matrix.CreateTranslation(Vector3.Up * -50) * Matrix.CreateScale(0.2f);
-                Effect.Parameters["World"].SetValue(CarMatrix);
+                //CarMatrix = mesh.ParentBone.Transform /** rotationMatrix */* Matrix.CreateScale(0.2f) * Matrix.CreateTranslation(Vector3.Backward * 100);
+                var Mesh = mesh.ParentBone.Transform;
+                Effect.Parameters["World"].SetValue(Mesh * CarMatrix);
+                mesh.Draw();
+            }
+
+            foreach (var mesh in CombatVehicleModel.Meshes)
+            {
+                var Mesh = mesh.ParentBone.Transform;
+                Effect.Parameters["World"].SetValue(Mesh * CombatVehicleWorld);
+                mesh.Draw();
+            }
+
+            foreach (var mesh in TankModel.Meshes)
+            {
+                var Mesh = mesh.ParentBone.Transform;
+                Effect.Parameters["World"].SetValue(Mesh * TankWorld);
+                mesh.Draw();
+            }
+            
+            foreach (var mesh in BarrelModel.Meshes)
+            {
+                var Mesh = mesh.ParentBone.Transform;
+                Effect.Parameters["World"].SetValue(Mesh * BarrelWorld);
+                mesh.Draw();
+            }
+
+            foreach (var mesh in BoxesModel.Meshes)
+            {
+                var Mesh = mesh.ParentBone.Transform;
+                Effect.Parameters["World"].SetValue(Mesh * BoxesWorld);
+                mesh.Draw();
+            }
+
+            foreach (var mesh in CarrotModel.Meshes)
+            {
+                var Mesh = mesh.ParentBone.Transform;
+                Effect.Parameters["World"].SetValue(Mesh * CarrotWorld);
                 mesh.Draw();
             }
 
@@ -222,6 +379,16 @@ namespace TGC.MonoGame.TP
             Content.Unload();
 
             base.UnloadContent();
+        }
+
+        private Vector3 AddSpeed(GameTime gameTime, Vector3 dir)
+        {
+            return dir * (float)(CarSpeed * gameTime.ElapsedGameTime.TotalSeconds);
+        }
+
+        float getAngle(Vector3 dir)
+        {
+            return (float)Math.Atan2(dir.X, dir.Z);
         }
     }
 }
