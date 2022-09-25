@@ -2,10 +2,16 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using BepuPhysics;
+using BepuPhysics.Collidables;
+using BepuPhysics.CollisionDetection;
+using BepuUtilities.Memory;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using TGC.MonoGame.Samples.Geometries.Textures;
+using TGC.MonoGame.TP.Content.Geometries;
+using TGC.MonoGame.TP.Physics;
+using NumericVector3 = System.Numerics.Vector3;
 
 namespace TGC.MonoGame.TP
 {
@@ -46,8 +52,8 @@ namespace TGC.MonoGame.TP
         private Effect CarEffect { get; set; }
         private Effect TilingEffect { get; set; }
         private Matrix World { get; set; }
-        private Matrix View { get; set; }
-        private Matrix Projection { get; set; }
+        //private Matrix View { get; set; }
+        //private Matrix Projection { get; set; }
         private FollowCamera FollowCamera { get; set; }
         private Model CarModel { get; set; }
         private Matrix CarMatrix { get; set; }
@@ -67,6 +73,45 @@ namespace TGC.MonoGame.TP
         private Model CarrotModel { get; set; }
         private Matrix CarrotWorld { get; set; }
         private List<Model> Models { get; set; }
+
+        //BORRAR DESDE ACA
+        private List<Matrix> ActiveBoxesWorld;
+
+        private List<BodyHandle> BoxHandles;
+
+        private bool CanShoot = true;
+
+        private CubePrimitive cubePrimitive;
+
+        private List<Matrix> InactiveBoxesWorld;
+
+        private List<float> Radii;
+
+        private Random Random;
+
+        private List<BodyHandle> SphereHandles;
+
+        private SpherePrimitive spherePrimitive;
+
+        private List<Matrix> SpheresWorld;
+        //HASTA ACA
+
+        /// <summary>
+        ///     Gets the simulation created by the demo's Initialize call.
+        /// </summary>
+        public Simulation Simulation { get; protected set; }
+
+        //Note that the buffer pool used by the simulation is not considered to be *owned* by the simulation. The simulation merely uses the pool.
+        //Disposing the simulation will not dispose or clear the buffer pool.
+        /// <summary>
+        ///     Gets the buffer pool used by the demo's simulation.
+        /// </summary>
+        public BufferPool BufferPool { get; private set; }
+
+        /// <summary>
+        ///     Gets the thread dispatcher available for use by the simulation.
+        /// </summary>
+        public SimpleThreadDispatcher ThreadDispatcher { get; private set; }
 
         Vector3 Posicion = Vector3.Zero;
         Vector3 CarPosicion = Vector3.Zero;
@@ -104,9 +149,9 @@ namespace TGC.MonoGame.TP
 
             // Configuramos nuestras matrices de la escena.
             World = Matrix.Identity;
-            View = Matrix.CreateLookAt(Vector3.UnitZ * 150, Vector3.Zero, Vector3.Up) * Matrix.CreateTranslation(Vector3.Down * 100);
-            Projection =
-                Matrix.CreatePerspectiveFieldOfView(MathHelper.PiOver4, GraphicsDevice.Viewport.AspectRatio, 1, 250);
+            //View = Matrix.CreateLookAt(Vector3.UnitZ * 150, Vector3.Zero, Vector3.Up) * Matrix.CreateTranslation(Vector3.Down * 100);
+            //Projection =
+            //    Matrix.CreatePerspectiveFieldOfView(MathHelper.PiOver4, GraphicsDevice.Viewport.AspectRatio, 1, 250);
             CarMatrix = Matrix.Identity;
             // Create World matrices for the Floor and Box
             FloorWorld = Matrix.CreateScale(2000f, 0.001f, 2000f);
@@ -121,6 +166,15 @@ namespace TGC.MonoGame.TP
             BarrelWorld = Matrix.Identity * Matrix.CreateScale(15f) * Matrix.CreateTranslation(Vector3.Forward * 100 + Vector3.Up * 15);
             BoxesWorld = Matrix.Identity * Matrix.CreateScale(0.3f) * Matrix.CreateTranslation(Vector3.Left * 100 + Vector3.Backward * 50 + Vector3.Up * 15);
             CarrotWorld = Matrix.Identity * Matrix.CreateScale(0.3f) * Matrix.CreateTranslation(Vector3.Right * 100 + Vector3.Down * 10);
+
+            // Physics
+
+            BufferPool = new BufferPool();
+
+            //It may be worth using something like hwloc to extract extra information to reason about.
+            var targetThreadCount = Math.Max(1,
+                Environment.ProcessorCount > 4 ? Environment.ProcessorCount - 2 : Environment.ProcessorCount - 1);
+            ThreadDispatcher = new SimpleThreadDispatcher(targetThreadCount);
 
 
             base.Initialize();
@@ -211,6 +265,70 @@ namespace TGC.MonoGame.TP
                     meshPart.Effect = CarEffect;
             }
 
+            //Physics
+
+            Simulation = Simulation.Create(BufferPool, new NarrowPhaseCallbacks(),
+                new PoseIntegratorCallbacks(new NumericVector3(0, -10, 0)), new PositionFirstTimestepper());
+
+            // BORRAR DESDE ACA
+
+            SphereHandles = new List<BodyHandle>();
+            ActiveBoxesWorld = new List<Matrix>();
+            InactiveBoxesWorld = new List<Matrix>();
+            SpheresWorld = new List<Matrix>();
+            Random = new Random();
+            BoxHandles = new List<BodyHandle>(800);
+            Radii = new List<float>();
+
+            var boxShape = new Box(1, 1, 1);
+            boxShape.ComputeInertia(1, out var boxInertia);
+            var boxIndex = Simulation.Shapes.Add(boxShape);
+            const int pyramidCount = 40;
+            for (var pyramidIndex = 0; pyramidIndex < pyramidCount; ++pyramidIndex)
+            {
+                const int rowCount = 20;
+                for (var rowIndex = 0; rowIndex < rowCount; ++rowIndex)
+                {
+                    var columnCount = rowCount - rowIndex;
+                    for (var columnIndex = 0; columnIndex < columnCount; ++columnIndex)
+                    {
+                        var bh = Simulation.Bodies.Add(BodyDescription.CreateDynamic(
+                            new NumericVector3((-columnCount * 0.5f + columnIndex) * boxShape.Width,
+                                (rowIndex + 0.5f) * boxShape.Height,
+                                (pyramidIndex - pyramidCount * 0.5f) * (boxShape.Length + 4)),
+                            boxInertia,
+                            new CollidableDescription(boxIndex, 0.1f),
+                            new BodyActivityDescription(0.01f)));
+                        BoxHandles.Add(bh);
+                    }
+                }
+            }
+
+            //Prevent the boxes from falling into the void.
+            Simulation.Statics.Add(new StaticDescription(new NumericVector3(0, -0.5f, 0),
+                new CollidableDescription(Simulation.Shapes.Add(new Box(2500, 1, 2500)), 0.1f)));
+
+            cubePrimitive = new CubePrimitive(GraphicsDevice, 1f, Color.White);
+
+            spherePrimitive = new SpherePrimitive(GraphicsDevice);
+
+            var count = BoxHandles.Count;
+            GraphicsDevice.DepthStencilState = DepthStencilState.Default;
+            for (var index = 0; index < count; index++)
+            {
+                var bodyHandle = BoxHandles[index];
+                var bodyReference = Simulation.Bodies.GetBodyReference(bodyHandle);
+                var position = bodyReference.Pose.Position;
+                var quaternion = bodyReference.Pose.Orientation;
+                var world =
+                    Matrix.CreateFromQuaternion(new Quaternion(quaternion.X, quaternion.Y, quaternion.Z,
+                        quaternion.W)) * Matrix.CreateTranslation(new Vector3(position.X, position.Y, position.Z));
+
+                cubePrimitive.Draw(world, FollowCamera.View, FollowCamera.Projection);
+            }
+
+            //HASTA ACA 
+
             base.LoadContent();
         }
 
@@ -221,27 +339,6 @@ namespace TGC.MonoGame.TP
         /// </summary>
         protected override void Update(GameTime gameTime)
         {
-            // Aca deberiamos poner toda la logica de actualizacion del juego.
-            MovimientoCamara = Matrix.Identity;
-            if (Keyboard.GetState().IsKeyDown(Keys.D)) {
-                MovimientoCamara = Matrix.CreateRotationY((float)(Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
-            }
-            if (Keyboard.GetState().IsKeyDown(Keys.A))
-            {
-                MovimientoCamara = Matrix.CreateRotationY((float)(-Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
-            }
-            if (Keyboard.GetState().IsKeyDown(Keys.W))
-            {
-                MovimientoCamara = Matrix.CreateRotationX((float)(-Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
-            }
-            if (Keyboard.GetState().IsKeyDown(Keys.S))
-            {
-                MovimientoCamara = Matrix.CreateRotationX((float)(Math.PI * gameTime.ElapsedGameTime.TotalSeconds));
-            }
-            if (Keyboard.GetState().IsKeyDown(Keys.R))
-            {
-                View = Matrix.CreateLookAt(Vector3.UnitZ * 150, Vector3.Zero, Vector3.Up) * Matrix.CreateTranslation(Vector3.Down * 100);
-            }
 
             if (Keyboard.GetState().IsKeyDown(Keys.Left))
             {
@@ -276,16 +373,84 @@ namespace TGC.MonoGame.TP
 
             CarPosicion += velocidad + velocidadV;
 
-            CarMatrix = Matrix.CreateScale(0.3f)
+            CarMatrix = Matrix.CreateScale(0.05f)
                         * Matrix.CreateFromQuaternion(Quaternion.CreateFromAxisAngle(Vector3.UnitY, getAngle(velocidad)))
-                        * (Matrix.CreateTranslation(CarPosicion) /** Matrix.CreateFromAxisAngle(Vector3.UnitY, (float)Math.PI / 2)*/);
+                        * (Matrix.CreateTranslation(CarPosicion));
 
             // Capturar Input teclado
             if (Keyboard.GetState().IsKeyDown(Keys.Escape))
                 //Salgo del juego.
                 Exit();
 
-            // Basado en el tiempo que paso se va generando una rotacion.
+            // Actualizo la camara, enviandole la matriz de mundo del auto
+            FollowCamera.Update(gameTime, CarMatrix);
+
+            //BORRRAR DE ACA
+            Simulation.Timestep(1 / 60f, ThreadDispatcher);
+
+            if (Keyboard.GetState().IsKeyDown(Keys.Z) && CanShoot)
+            {
+                CanShoot = false;
+                //Create the shape that we'll launch at the pyramids when the user presses a button.
+                var radius = 0.5f + 5 * (float)Random.NextDouble();
+                var bulletShape = new Sphere(radius);
+
+                //Note that the use of radius^3 for mass can produce some pretty serious mass ratios. 
+                //Observe what happens when a large ball sits on top of a few boxes with a fraction of the mass-
+                //the collision appears much squishier and less stable. For most games, if you want to maintain rigidity, you'll want to use some combination of:
+                //1) Limit the ratio of heavy object masses to light object masses when those heavy objects depend on the light objects.
+                //2) Use a shorter timestep duration and update more frequently.
+                //3) Use a greater number of solver iterations.
+                //#2 and #3 can become very expensive. In pathological cases, it can end up slower than using a quality-focused solver for the same simulation.
+                //Unfortunately, at the moment, bepuphysics v2 does not contain any alternative solvers, so if you can't afford to brute force the the problem away,
+                //the best solution is to cheat as much as possible to avoid the corner cases.
+                var velocity = Vector3.Forward * 200;
+                var position = new NumericVector3(CarPosicion.X, CarPosicion.Y, CarPosicion.Z);
+                var bodyDescription = BodyDescription.CreateConvexDynamic(position,
+                    new BodyVelocity(new NumericVector3(velocity.X, velocity.Y, velocity.Z)),
+                    bulletShape.Radius * bulletShape.Radius * bulletShape.Radius, Simulation.Shapes, bulletShape);
+
+                var bodyHandle = Simulation.Bodies.Add(bodyDescription);
+
+                Radii.Add(radius);
+                SphereHandles.Add(bodyHandle);
+            }
+
+            if (Keyboard.GetState().IsKeyUp(Keys.Z)) CanShoot = true;
+
+            ActiveBoxesWorld.Clear();
+            InactiveBoxesWorld.Clear();
+            var count = BoxHandles.Count;
+            for (var index = 0; index < count; index++)
+            {
+                var bodyHandle = BoxHandles[index];
+                var bodyReference = Simulation.Bodies.GetBodyReference(bodyHandle);
+                var position = bodyReference.Pose.Position;
+                var quaternion = bodyReference.Pose.Orientation;
+                var world =
+                    Matrix.CreateFromQuaternion(new Quaternion(quaternion.X, quaternion.Y, quaternion.Z,
+                        quaternion.W)) * Matrix.CreateTranslation(new Vector3(position.X, position.Y, position.Z));
+
+                if (bodyReference.Awake)
+                    ActiveBoxesWorld.Add(world);
+                else
+                    InactiveBoxesWorld.Add(world);
+            }
+
+            SpheresWorld.Clear();
+            var sphereCount = SphereHandles.Count;
+            for (var index = 0; index < sphereCount; index++)
+            {
+                var bodyHandle = SphereHandles[index];
+                var bodyReference = Simulation.Bodies.GetBodyReference(bodyHandle);
+                var position = bodyReference.Pose.Position;
+                var quaternion = bodyReference.Pose.Orientation;
+                var world =
+                    Matrix.CreateFromQuaternion(new Quaternion(quaternion.X, quaternion.Y, quaternion.Z,
+                        quaternion.W)) * Matrix.CreateTranslation(new Vector3(position.X, position.Y, position.Z));
+                SpheresWorld.Add(world);
+            }
+            //HASTA ACA
 
             base.Update(gameTime);
         }
@@ -298,75 +463,72 @@ namespace TGC.MonoGame.TP
         {
             GraphicsDevice.Clear(Color.Violet);
             // Floor drawing
-
-            //Set the Technique inside the TilingEffect to "BaseTiling", we want to control the tiling on the floor
-            //Using its original Texture Coordinates
-            //TilingEffect.CurrentTechnique = TilingEffect.Techniques["BaseTiling"];
-            //// Set the Tiling value
-            //TilingEffect.Parameters["Tiling"].SetValue(new Vector2(10f, 10f));
-            //// Set the WorldViewProjection matrix
-            //TilingEffect.Parameters["WorldViewProjection"].SetValue(FloorWorld * Projection);
-            //// Set the Texture that the Floor will use
-            //TilingEffect.Parameters["Texture"].SetValue(FloorTexture);
-            //Quad.Draw(TilingEffect);
-            //QuadPrimitive quad = new QuadPrimitive(GraphicsDevice);
-            Quad.Draw(FloorWorld, View, Projection);
+            Quad.Draw(FloorWorld, FollowCamera.View, FollowCamera.Projection);
 
             // Aca deberiamos poner toda la logia de renderizado del juego.
 
             // Para dibujar le modelo necesitamos pasarle informacion que el efecto esta esperando.
-            Effect.Parameters["View"].SetValue(View);
-            Effect.Parameters["Projection"].SetValue(Projection);
-            //Effect.Parameters["DiffuseColor"].SetValue(Color.DarkBlue.ToVector3());
-            //var rotationMatrix = Matrix.CreateRotationY(Rotation);
+            Effect.Parameters["View"].SetValue(FollowCamera.View);
+            Effect.Parameters["Projection"].SetValue(FollowCamera.Projection);
 
-            CarEffect.Parameters["View"].SetValue(View);
-            CarEffect.Parameters["Projection"].SetValue(Projection);
+            CarEffect.Parameters["View"].SetValue(FollowCamera.View);
+            CarEffect.Parameters["Projection"].SetValue(FollowCamera.Projection);
 
             foreach (var mesh in CarModel.Meshes)
             {
                 //CarMatrix = mesh.ParentBone.Transform /** rotationMatrix */* Matrix.CreateScale(0.2f) * Matrix.CreateTranslation(Vector3.Backward * 100);
                 var Mesh = mesh.ParentBone.Transform;
-                Effect.Parameters["World"].SetValue(Mesh * CarMatrix);
+                CarEffect.Parameters["World"].SetValue(Mesh * CarMatrix);
                 mesh.Draw();
             }
 
-            foreach (var mesh in CombatVehicleModel.Meshes)
-            {
-                var Mesh = mesh.ParentBone.Transform;
-                Effect.Parameters["World"].SetValue(Mesh * CombatVehicleWorld);
-                mesh.Draw();
-            }
 
-            foreach (var mesh in TankModel.Meshes)
-            {
-                var Mesh = mesh.ParentBone.Transform;
-                Effect.Parameters["World"].SetValue(Mesh * TankWorld);
-                mesh.Draw();
-            }
-            
-            foreach (var mesh in BarrelModel.Meshes)
-            {
-                var Mesh = mesh.ParentBone.Transform;
-                Effect.Parameters["World"].SetValue(Mesh * BarrelWorld);
-                mesh.Draw();
-            }
+            //foreach (var mesh in CombatVehicleModel.Meshes)
+            //{
+            //    var Mesh = mesh.ParentBone.Transform;
+            //    Effect.Parameters["World"].SetValue(Mesh * CombatVehicleWorld);
+            //    mesh.Draw();
+            //}
 
-            foreach (var mesh in BoxesModel.Meshes)
-            {
-                var Mesh = mesh.ParentBone.Transform;
-                Effect.Parameters["World"].SetValue(Mesh * BoxesWorld);
-                mesh.Draw();
-            }
+            //foreach (var mesh in TankModel.Meshes)
+            //{
+            //    var Mesh = mesh.ParentBone.Transform;
+            //    Effect.Parameters["World"].SetValue(Mesh * TankWorld);
+            //    mesh.Draw();
+            //}
 
-            foreach (var mesh in CarrotModel.Meshes)
-            {
-                var Mesh = mesh.ParentBone.Transform;
-                Effect.Parameters["World"].SetValue(Mesh * CarrotWorld);
-                mesh.Draw();
-            }
+            //foreach (var mesh in BarrelModel.Meshes)
+            //{
+            //    var Mesh = mesh.ParentBone.Transform;
+            //    Effect.Parameters["World"].SetValue(Mesh * BarrelWorld);
+            //    mesh.Draw();
+            //}
 
-            View *= MovimientoCamara;
+            //foreach (var mesh in BoxesModel.Meshes)
+            //{
+            //    var Mesh = mesh.ParentBone.Transform;
+            //    Effect.Parameters["World"].SetValue(Mesh * BoxesWorld);
+            //    mesh.Draw();
+            //}
+
+            //foreach (var mesh in CarrotModel.Meshes)
+            //{
+            //    var Mesh = mesh.ParentBone.Transform;
+            //    Effect.Parameters["World"].SetValue(Mesh * CarrotWorld);
+            //    mesh.Draw();
+            //}
+
+            //borrar
+            var count = BoxHandles.Count;
+            GraphicsDevice.DepthStencilState = DepthStencilState.Default;
+
+            cubePrimitive.Effect.DiffuseColor = new Vector3(1f, 0f, 0f);
+            ActiveBoxesWorld.ForEach(boxWorld => cubePrimitive.Draw(boxWorld, FollowCamera.View, FollowCamera.Projection));
+            cubePrimitive.Effect.DiffuseColor = new Vector3(0.1f, 0.1f, 0.3f);
+            InactiveBoxesWorld.ForEach(boxWorld => cubePrimitive.Draw(boxWorld, FollowCamera.View, FollowCamera.Projection));
+
+            SpheresWorld.ForEach(sphereWorld => spherePrimitive.Draw(sphereWorld, FollowCamera.View, FollowCamera.Projection));
+            //HASTA ACA
 
         }
 
