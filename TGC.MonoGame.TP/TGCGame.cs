@@ -2,9 +2,11 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Numerics;
 using BepuPhysics;
 using BepuPhysics.Collidables;
 using BepuPhysics.CollisionDetection;
+using BepuPhysics.Constraints;
 using BepuUtilities.Memory;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -12,6 +14,8 @@ using Microsoft.Xna.Framework.Input;
 using TGC.MonoGame.TP.Content.Geometries;
 using TGC.MonoGame.TP.Physics;
 using NumericVector3 = System.Numerics.Vector3;
+using Quaternion = Microsoft.Xna.Framework.Quaternion;
+using Vector3 = Microsoft.Xna.Framework.Vector3;
 
 namespace TGC.MonoGame.TP
 {
@@ -95,6 +99,10 @@ namespace TGC.MonoGame.TP
 
         private List<Matrix> SpheresWorld;
         //HASTA ACA
+
+        private BodyHandle CarHandle;
+
+        private Matrix CarWorldPhysics;
 
         /// <summary>
         ///     Gets the simulation created by the demo's Initialize call.
@@ -270,6 +278,23 @@ namespace TGC.MonoGame.TP
             Simulation = Simulation.Create(BufferPool, new NarrowPhaseCallbacks(),
                 new PoseIntegratorCallbacks(new NumericVector3(0, -10, 0)), new PositionFirstTimestepper());
 
+
+            var carShape = new Box(1, 1, 1);
+            carShape.ComputeInertia(1, out var carInertia);
+            var carIndex = Simulation.Shapes.Add(carShape);
+
+            CarHandle = Simulation.Bodies.Add(BodyDescription.CreateDynamic(
+                new NumericVector3(10f, 10f, 10f),
+                carInertia,
+                new CollidableDescription(carIndex, 0.1f),
+                new BodyActivityDescription(0.01f)));
+
+            var carReference = Simulation.Bodies.GetBodyReference(CarHandle);
+            var carPosition = carReference.Pose.Position;
+            var carQuaternion = carReference.Pose.Orientation;
+            CarWorldPhysics = Matrix.CreateFromQuaternion(new Quaternion(carQuaternion.X, carQuaternion.Y, carQuaternion.Z,
+                       carQuaternion.W)) * Matrix.CreateTranslation(new Vector3(carPosition.X, carPosition.Y, carPosition.Z));
+
             // BORRAR DESDE ACA
 
             SphereHandles = new List<BodyHandle>();
@@ -327,6 +352,8 @@ namespace TGC.MonoGame.TP
                 cubePrimitive.Draw(world, FollowCamera.View, FollowCamera.Projection);
             }
 
+            cubePrimitive.Draw(CarWorldPhysics, FollowCamera.View, FollowCamera.Projection);
+
             //HASTA ACA 
 
             base.LoadContent();
@@ -339,6 +366,8 @@ namespace TGC.MonoGame.TP
         /// </summary>
         protected override void Update(GameTime gameTime)
         {
+            Simulation.Timestep(1 / 60f, ThreadDispatcher);
+            var carReference = Simulation.Bodies.GetBodyReference(CarHandle);
 
             if (Keyboard.GetState().IsKeyDown(Keys.Left))
             {
@@ -369,6 +398,20 @@ namespace TGC.MonoGame.TP
                 velocidadV.Y += 10;
             }
 
+            if (Keyboard.GetState().IsKeyDown(Keys.A))
+            {
+                carReference.ApplyLinearImpulse(new NumericVector3(0f, 1000f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.D))
+            {
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.W))
+            {
+            }
+            if (Keyboard.GetState().IsKeyDown(Keys.S))
+            {
+            }
+
             velocidad -= velocidad * new Vector3(1, 0, 1) * 3 * (float)gameTime.ElapsedGameTime.TotalSeconds;
 
             CarPosicion += velocidad + velocidadV;
@@ -385,8 +428,14 @@ namespace TGC.MonoGame.TP
             // Actualizo la camara, enviandole la matriz de mundo del auto
             FollowCamera.Update(gameTime, CarMatrix);
 
+
+            var carPosition = carReference.Pose.Position;
+            var carQuaternion = carReference.Pose.Orientation;
+            CarWorldPhysics = Matrix.CreateFromQuaternion(new Quaternion(carQuaternion.X, carQuaternion.Y, carQuaternion.Z,
+                       carQuaternion.W)) * Matrix.CreateTranslation(new Vector3(carPosition.X, carPosition.Y, carPosition.Z));
+
+
             //BORRRAR DE ACA
-            Simulation.Timestep(1 / 60f, ThreadDispatcher);
 
             if (Keyboard.GetState().IsKeyDown(Keys.Z) && CanShoot)
             {
@@ -529,6 +578,7 @@ namespace TGC.MonoGame.TP
 
             SpheresWorld.ForEach(sphereWorld => spherePrimitive.Draw(sphereWorld, FollowCamera.View, FollowCamera.Projection));
             //HASTA ACA
+            cubePrimitive.Draw(CarWorldPhysics, FollowCamera.View, FollowCamera.Projection);
 
         }
 
