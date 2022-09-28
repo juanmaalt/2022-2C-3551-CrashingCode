@@ -279,12 +279,12 @@ namespace TGC.MonoGame.TP
                 new PoseIntegratorCallbacks(new NumericVector3(0, -10, 0)), new PositionFirstTimestepper());
 
 
-            var carShape = new Box(1, 1, 1);
+            var carShape = new Box(5, 2, 5);
             carShape.ComputeInertia(1, out var carInertia);
             var carIndex = Simulation.Shapes.Add(carShape);
 
             CarHandle = Simulation.Bodies.Add(BodyDescription.CreateDynamic(
-                new NumericVector3(10f, 10f, 10f),
+                new NumericVector3(0f, 2f, 0f),
                 carInertia,
                 new CollidableDescription(carIndex, 0.1f),
                 new BodyActivityDescription(0.01f)));
@@ -395,21 +395,24 @@ namespace TGC.MonoGame.TP
             }
             if (Keyboard.GetState().IsKeyDown(Keys.Space) && CarPosicion.Y <= 0)
             {
-                velocidadV.Y += 10;
+                carReference.ApplyLinearImpulse(new NumericVector3(0f, 100f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
 
             if (Keyboard.GetState().IsKeyDown(Keys.A))
             {
-                carReference.ApplyLinearImpulse(new NumericVector3(0f, 1000f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, 100f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
             if (Keyboard.GetState().IsKeyDown(Keys.D))
             {
+                carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, -100f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
             if (Keyboard.GetState().IsKeyDown(Keys.W))
             {
+                carReference.ApplyLinearImpulse(new NumericVector3(-100f, 0f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
             if (Keyboard.GetState().IsKeyDown(Keys.S))
             {
+                carReference.ApplyLinearImpulse(new NumericVector3(100f, 0f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
 
             velocidad -= velocidad * new Vector3(1, 0, 1) * 3 * (float)gameTime.ElapsedGameTime.TotalSeconds;
@@ -525,9 +528,8 @@ namespace TGC.MonoGame.TP
 
             foreach (var mesh in CarModel.Meshes)
             {
-                //CarMatrix = mesh.ParentBone.Transform /** rotationMatrix */* Matrix.CreateScale(0.2f) * Matrix.CreateTranslation(Vector3.Backward * 100);
                 var Mesh = mesh.ParentBone.Transform;
-                CarEffect.Parameters["World"].SetValue(Mesh * CarMatrix);
+                CarEffect.Parameters["World"].SetValue(Mesh * CarWorldPhysics * Matrix.CreateScale(.02f));
                 mesh.Draw();
             }
 
@@ -578,7 +580,6 @@ namespace TGC.MonoGame.TP
 
             SpheresWorld.ForEach(sphereWorld => spherePrimitive.Draw(sphereWorld, FollowCamera.View, FollowCamera.Projection));
             //HASTA ACA
-            cubePrimitive.Draw(CarWorldPhysics, FollowCamera.View, FollowCamera.Projection);
 
         }
 
