@@ -103,6 +103,7 @@ namespace TGC.MonoGame.TP
         private BodyHandle CarHandle;
 
         private Matrix CarWorldPhysics;
+        private Matrix CarWorldPhysics2;
 
         /// <summary>
         ///     Gets the simulation created by the demo's Initialize call.
@@ -218,13 +219,18 @@ namespace TGC.MonoGame.TP
             Effect = Content.Load<Effect>(ContentFolderEffects + "BasicShader");
             CarEffect = Content.Load<Effect>(ContentFolderEffects + "BasicShader");
 
-
+            
             CarTexture = Content.Load<Texture2D>(ContentFolder3D + "racingcara/Vehicle_metallic");
 
-            //var effect = Effect as BasicEffect;
+            /*
+            var effect = CarEffect as BasicEffect;
 
-            //effect.Texture = CarTexture;
+            effect.Texture = CarTexture;
 
+            effect = Effect as BasicEffect;
+
+            effect.Texture = FloorTexture;
+            */
             foreach (var mesh in CarModel.Meshes)
             {
                 // A mesh contains a collection of parts
@@ -279,15 +285,15 @@ namespace TGC.MonoGame.TP
                 new PoseIntegratorCallbacks(new NumericVector3(0, -10, 0)), new PositionFirstTimestepper());
 
 
-            var carShape = new Box(5, 2, 5);
-            carShape.ComputeInertia(1, out var carInertia);
+            var carShape = new Box(5, 5, 10);
+            carShape.ComputeInertia(100, out var carInertia);
             var carIndex = Simulation.Shapes.Add(carShape);
 
             CarHandle = Simulation.Bodies.Add(BodyDescription.CreateDynamic(
-                new NumericVector3(0f, 2f, 0f),
+                new NumericVector3(0f, 0f, 0f),
                 carInertia,
-                new CollidableDescription(carIndex, 0.1f),
-                new BodyActivityDescription(0.01f)));
+                new CollidableDescription(carIndex, 1f),
+                new BodyActivityDescription(1f)));
 
             var carReference = Simulation.Bodies.GetBodyReference(CarHandle);
             var carPosition = carReference.Pose.Position;
@@ -331,7 +337,7 @@ namespace TGC.MonoGame.TP
 
             //Prevent the boxes from falling into the void.
             Simulation.Statics.Add(new StaticDescription(new NumericVector3(0, -0.5f, 0),
-                new CollidableDescription(Simulation.Shapes.Add(new Box(2500, 1, 2500)), 0.1f)));
+                new CollidableDescription(Simulation.Shapes.Add(new Box(25000, 1, 25000)), 0.1f)));
 
             cubePrimitive = new CubePrimitive(GraphicsDevice, 1f, Color.White);
 
@@ -359,11 +365,17 @@ namespace TGC.MonoGame.TP
             base.LoadContent();
         }
 
+        private NumericVector3 vectorization (Vector3 vec)
+        {
+            return new NumericVector3(vec.X, vec.Y, vec.Z);
+        }
+
         /// <summary>
         ///     Se llama en cada frame.
         ///     Se debe escribir toda la logica de computo del modelo, asi como tambien verificar entradas del usuario y reacciones
         ///     ante ellas.
         /// </summary>
+        
         protected override void Update(GameTime gameTime)
         {
             Simulation.Timestep(1 / 60f, ThreadDispatcher);
@@ -393,26 +405,37 @@ namespace TGC.MonoGame.TP
             {
                 velocidadV.Y = 0;
             }
+
+            var carPosition = carReference.Pose.Position;
+            var carQuaternion = carReference.Pose.Orientation;
+            CarWorldPhysics = Matrix.CreateScale(0.2f) * Matrix.CreateFromQuaternion(new Quaternion(carQuaternion.X, carQuaternion.Y, carQuaternion.Z,
+                       carQuaternion.W)) * Matrix.CreateTranslation(new Vector3(carPosition.X, carPosition.Y, carPosition.Z));
+            var speed = 30000f;
             if (Keyboard.GetState().IsKeyDown(Keys.Space) && CarPosicion.Y <= 0)
             {
-                carReference.ApplyLinearImpulse(new NumericVector3(0f, 100f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyLinearImpulse(new NumericVector3(0f, speed, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
 
             if (Keyboard.GetState().IsKeyDown(Keys.A))
             {
-                carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, 100f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                //carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, speed) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyAngularImpulse(new NumericVector3 (0,3600,0) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
             if (Keyboard.GetState().IsKeyDown(Keys.D))
             {
-                carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, -100f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                //carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, -speed) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyAngularImpulse(new NumericVector3( 0, -3600, 0) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+
             }
             if (Keyboard.GetState().IsKeyDown(Keys.W))
             {
-                carReference.ApplyLinearImpulse(new NumericVector3(-100f, 0f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyLinearImpulse(vectorization(-CarWorldPhysics.Forward) * speed * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
             if (Keyboard.GetState().IsKeyDown(Keys.S))
             {
-                carReference.ApplyLinearImpulse(new NumericVector3(100f, 0f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyLinearImpulse(vectorization(CarWorldPhysics.Forward) * speed * (float)gameTime.ElapsedGameTime.TotalSeconds);
+
+                //carReference.ApplyLinearImpulse(new NumericVector3(speed, 0f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
 
             velocidad -= velocidad * new Vector3(1, 0, 1) * 3 * (float)gameTime.ElapsedGameTime.TotalSeconds;
@@ -422,22 +445,19 @@ namespace TGC.MonoGame.TP
             CarMatrix = Matrix.CreateScale(0.05f)
                         * Matrix.CreateFromQuaternion(Quaternion.CreateFromAxisAngle(Vector3.UnitY, getAngle(velocidad)))
                         * (Matrix.CreateTranslation(CarPosicion));
-
+            
             // Capturar Input teclado
             if (Keyboard.GetState().IsKeyDown(Keys.Escape))
                 //Salgo del juego.
                 Exit();
 
             // Actualizo la camara, enviandole la matriz de mundo del auto
-            FollowCamera.Update(gameTime, CarMatrix);
+            FollowCamera.Update(gameTime, CarWorldPhysics);
 
+            //CarWorldPhysics = Matrix.CreateFromQuaternion(new Quaternion(carQuaternion.X, carQuaternion.Y, carQuaternion.Z,
+            //  carQuaternion.W)) * Matrix.CreateTranslation(new Vector3(carPosition.X, carPosition.Y, carPosition.Z));
 
-            var carPosition = carReference.Pose.Position;
-            var carQuaternion = carReference.Pose.Orientation;
-            CarWorldPhysics = Matrix.CreateFromQuaternion(new Quaternion(carQuaternion.X, carQuaternion.Y, carQuaternion.Z,
-                       carQuaternion.W)) * Matrix.CreateTranslation(new Vector3(carPosition.X, carPosition.Y, carPosition.Z));
-
-
+            
             //BORRRAR DE ACA
 
             if (Keyboard.GetState().IsKeyDown(Keys.Z) && CanShoot)
@@ -529,7 +549,7 @@ namespace TGC.MonoGame.TP
             foreach (var mesh in CarModel.Meshes)
             {
                 var Mesh = mesh.ParentBone.Transform;
-                CarEffect.Parameters["World"].SetValue(Mesh * CarWorldPhysics * Matrix.CreateScale(.02f));
+                CarEffect.Parameters["World"].SetValue(Mesh * Matrix.CreateScale(0.1f) * CarWorldPhysics);
                 mesh.Draw();
             }
 

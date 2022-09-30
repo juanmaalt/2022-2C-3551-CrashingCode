@@ -38,9 +38,9 @@ namespace TGC.MonoGame.TP
 
             // Perspective camera
 
-            View = Matrix.CreateLookAt(Vector3.UnitZ * 150, Vector3.Zero, Vector3.Up) * Matrix.CreateTranslation(Vector3.Down * 100);
+            View = Matrix.CreateLookAt(Vector3.UnitZ, Vector3.Zero, Vector3.Up) * Matrix.CreateTranslation(Vector3.Down);
             Projection =
-                Matrix.CreatePerspectiveFieldOfView(MathF.PI / 3f, aspectRatio, 0.1f, 100000f);
+                Matrix.CreatePerspectiveFieldOfView(MathF.PI / 14f, aspectRatio, 0.1f, 10000f);
         }
 
         /// <summary>
