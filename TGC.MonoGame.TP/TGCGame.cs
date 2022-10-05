@@ -7,6 +7,7 @@ using BepuPhysics;
 using BepuPhysics.Collidables;
 using BepuPhysics.CollisionDetection;
 using BepuPhysics.Constraints;
+using BepuPhysics.Constraints.Contact;
 using BepuUtilities.Memory;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -132,12 +133,15 @@ namespace TGC.MonoGame.TP
         Vector3 velocidad = Vector3.Zero;
         Vector3 velocidadV = Vector3.Zero;
 
+
+        CollidableProperty<OurCarBodyProperties> properties;
         /// <summary>
         ///     Se llama una sola vez, al principio cuando se ejecuta el ejemplo.
         ///     Escribir aqui el codigo de inicializacion: el procesamiento que podemos pre calcular para nuestro juego.
         /// </summary>
         protected override void Initialize()
         {
+            properties = new CollidableProperty<OurCarBodyProperties>();
             // La logica de inicializacion que no depende del contenido se recomienda poner en este metodo.
             // Configuro el tamaño de la pantalla
             Graphics.PreferredBackBufferWidth = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width - 100;
@@ -196,6 +200,8 @@ namespace TGC.MonoGame.TP
         /// </summary>
         protected override void LoadContent()
         {
+            
+
             // Aca es donde deberiamos cargar todos los contenido necesarios antes de iniciar el juego.
             SpriteBatch = new SpriteBatch(GraphicsDevice);
 
@@ -281,7 +287,7 @@ namespace TGC.MonoGame.TP
 
             //Physics
 
-            Simulation = Simulation.Create(BufferPool, new NarrowPhaseCallbacks(),
+            Simulation = Simulation.Create(BufferPool, new NarrowPhaseCallbacks() { bodyProperties = properties},
                 new PoseIntegratorCallbacks(new NumericVector3(0, -10, 0)), new PositionFirstTimestepper());
 
 
@@ -292,9 +298,13 @@ namespace TGC.MonoGame.TP
             CarHandle = Simulation.Bodies.Add(BodyDescription.CreateDynamic(
                 new NumericVector3(0f, 0f, 0f),
                 carInertia,
-                new CollidableDescription(carIndex, 1f),
-                new BodyActivityDescription(1f)));
-
+                new CollidableDescription(carIndex, 0.1f),
+                new BodyActivityDescription(0.01f)
+                
+                ));
+            ref var bodyProperties = ref properties.Allocate(CarHandle);
+            bodyProperties = new OurCarBodyProperties();
+            bodyProperties.Friction = 10;
             var carReference = Simulation.Bodies.GetBodyReference(CarHandle);
             var carPosition = carReference.Pose.Position;
             var carQuaternion = carReference.Pose.Orientation;
@@ -336,8 +346,13 @@ namespace TGC.MonoGame.TP
             }
 
             //Prevent the boxes from falling into the void.
-            Simulation.Statics.Add(new StaticDescription(new NumericVector3(0, -0.5f, 0),
+
+            var BaseHandle = Simulation.Statics.Add(new StaticDescription(new NumericVector3(0, -0.5f, 0),
                 new CollidableDescription(Simulation.Shapes.Add(new Box(25000, 1, 25000)), 0.1f)));
+            ref var BaseBodyProperties = ref properties.Allocate(BaseHandle);
+            BaseBodyProperties = new OurCarBodyProperties();
+            BaseBodyProperties.Friction = 0.1f;
+
 
             cubePrimitive = new CubePrimitive(GraphicsDevice, 1f, Color.White);
 
@@ -410,7 +425,7 @@ namespace TGC.MonoGame.TP
             var carQuaternion = carReference.Pose.Orientation;
             CarWorldPhysics = Matrix.CreateScale(0.2f) * Matrix.CreateFromQuaternion(new Quaternion(carQuaternion.X, carQuaternion.Y, carQuaternion.Z,
                        carQuaternion.W)) * Matrix.CreateTranslation(new Vector3(carPosition.X, carPosition.Y, carPosition.Z));
-            var speed = 30000f;
+            var speed = 300f;
             if (Keyboard.GetState().IsKeyDown(Keys.Space) && CarPosicion.Y <= 0)
             {
                 carReference.ApplyLinearImpulse(new NumericVector3(0f, speed, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
@@ -419,21 +434,21 @@ namespace TGC.MonoGame.TP
             if (Keyboard.GetState().IsKeyDown(Keys.A))
             {
                 //carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, speed) * (float)gameTime.ElapsedGameTime.TotalSeconds);
-                carReference.ApplyAngularImpulse(new NumericVector3 (0,3600,0) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyAngularImpulse(new NumericVector3 (0,36,0));
             }
             if (Keyboard.GetState().IsKeyDown(Keys.D))
             {
                 //carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, -speed) * (float)gameTime.ElapsedGameTime.TotalSeconds);
-                carReference.ApplyAngularImpulse(new NumericVector3( 0, -3600, 0) * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyAngularImpulse(new NumericVector3( 0, -36, 0));
 
             }
             if (Keyboard.GetState().IsKeyDown(Keys.W))
             {
-                carReference.ApplyLinearImpulse(vectorization(-CarWorldPhysics.Forward) * speed * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyLinearImpulse(vectorization(-CarWorldPhysics.Forward) * speed);
             }
             if (Keyboard.GetState().IsKeyDown(Keys.S))
             {
-                carReference.ApplyLinearImpulse(vectorization(CarWorldPhysics.Forward) * speed * (float)gameTime.ElapsedGameTime.TotalSeconds);
+                carReference.ApplyLinearImpulse(vectorization(CarWorldPhysics.Forward) * speed );
 
                 //carReference.ApplyLinearImpulse(new NumericVector3(speed, 0f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }

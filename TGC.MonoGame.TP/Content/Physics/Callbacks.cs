@@ -9,6 +9,10 @@ using BepuUtilities;
 
 namespace TGC.MonoGame.TP.Physics
 {
+    public struct OurCarBodyProperties
+    {
+        public float Friction;
+    }
     public struct PoseIntegratorCallbacks : IPoseIntegratorCallbacks
     {
         public Vector3 Gravity;
@@ -70,7 +74,12 @@ namespace TGC.MonoGame.TP.Physics
     }
     public unsafe struct NarrowPhaseCallbacks : INarrowPhaseCallbacks
     {
-        public void Initialize(Simulation simulation) { }
+        public void Initialize(Simulation simulation)
+        {
+            bodyProperties.Initialize(simulation);
+        }
+
+        public CollidableProperty<OurCarBodyProperties> bodyProperties;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool AllowContactGeneration(int workerIndex, CollidableReference a, CollidableReference b)
@@ -92,7 +101,7 @@ namespace TGC.MonoGame.TP.Physics
         {
             pairMaterial = new PairMaterialProperties 
             {
-                FrictionCoefficient = 1, 
+                FrictionCoefficient = (bodyProperties[pair.B.BodyHandle].Friction + bodyProperties[pair.A.BodyHandle].Friction)/2f, 
                 MaximumRecoveryVelocity = 2, 
                 SpringSettings = new SpringSettings(30, 1) 
             };
