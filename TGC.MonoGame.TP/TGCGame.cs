@@ -304,7 +304,7 @@ namespace TGC.MonoGame.TP
                 ));
             ref var bodyProperties = ref properties.Allocate(CarHandle);
             bodyProperties = new OurCarBodyProperties();
-            bodyProperties.Friction = 10;
+            bodyProperties.Friction = 1f;
             var carReference = Simulation.Bodies.GetBodyReference(CarHandle);
             var carPosition = carReference.Pose.Position;
             var carQuaternion = carReference.Pose.Orientation;
@@ -351,7 +351,7 @@ namespace TGC.MonoGame.TP
                 new CollidableDescription(Simulation.Shapes.Add(new Box(25000, 1, 25000)), 0.1f)));
             ref var BaseBodyProperties = ref properties.Allocate(BaseHandle);
             BaseBodyProperties = new OurCarBodyProperties();
-            BaseBodyProperties.Friction = 0.1f;
+            BaseBodyProperties.Friction = 5f;
 
 
             cubePrimitive = new CubePrimitive(GraphicsDevice, 1f, Color.White);
@@ -380,9 +380,17 @@ namespace TGC.MonoGame.TP
             base.LoadContent();
         }
 
-        private NumericVector3 vectorization (Vector3 vec)
+        private NumericVector3 vectorization(Vector3 vec)
         {
             return new NumericVector3(vec.X, vec.Y, vec.Z);
+        }
+        private Vector3 vectorization(NumericVector3 vec)
+        {
+            return new Vector3(vec.X, vec.Y, vec.Z);
+        }
+        private Vector3 Qvectorization(Quaternion vec)
+        {
+            return new Vector3(vec.X, vec.Y, vec.Z);
         }
 
         /// <summary>
@@ -390,7 +398,9 @@ namespace TGC.MonoGame.TP
         ///     Se debe escribir toda la logica de computo del modelo, asi como tambien verificar entradas del usuario y reacciones
         ///     ante ellas.
         /// </summary>
-        
+        Matrix ruedaRotacion = Matrix.Identity;
+        float ruedasDir = 1f;
+        float ruedasDirVel = 0f;
         protected override void Update(GameTime gameTime)
         {
             Simulation.Timestep(1 / 60f, ThreadDispatcher);
@@ -421,11 +431,14 @@ namespace TGC.MonoGame.TP
                 velocidadV.Y = 0;
             }
 
+            
             var carPosition = carReference.Pose.Position;
             var carQuaternion = carReference.Pose.Orientation;
             CarWorldPhysics = Matrix.CreateScale(0.2f) * Matrix.CreateFromQuaternion(new Quaternion(carQuaternion.X, carQuaternion.Y, carQuaternion.Z,
                        carQuaternion.W)) * Matrix.CreateTranslation(new Vector3(carPosition.X, carPosition.Y, carPosition.Z));
             var speed = 300f;
+
+            ruedasDirVel -= ruedasDirVel/10f;
             if (Keyboard.GetState().IsKeyDown(Keys.Space) && CarPosicion.Y <= 0)
             {
                 carReference.ApplyLinearImpulse(new NumericVector3(0f, speed, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
@@ -435,11 +448,13 @@ namespace TGC.MonoGame.TP
             {
                 //carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, speed) * (float)gameTime.ElapsedGameTime.TotalSeconds);
                 carReference.ApplyAngularImpulse(new NumericVector3 (0,36,0));
+                ruedasDirVel += 0.1f;
             }
             if (Keyboard.GetState().IsKeyDown(Keys.D))
             {
                 //carReference.ApplyLinearImpulse(new NumericVector3(0f, 0f, -speed) * (float)gameTime.ElapsedGameTime.TotalSeconds);
                 carReference.ApplyAngularImpulse(new NumericVector3( 0, -36, 0));
+                ruedasDirVel -= 0.1f;
 
             }
             if (Keyboard.GetState().IsKeyDown(Keys.W))
@@ -453,6 +468,12 @@ namespace TGC.MonoGame.TP
                 //carReference.ApplyLinearImpulse(new NumericVector3(speed, 0f, 0f) * (float)gameTime.ElapsedGameTime.TotalSeconds);
             }
 
+            ruedaRotacion = 
+                Matrix.CreateScale(1f) *
+                Matrix.CreateRotationX(carReference.Velocity.Linear.Length()* 
+                (getAngle(vectorization(carReference.Velocity.Linear)) - getAngle(new Vector3(carQuaternion.X,carQuaternion.Y,carQuaternion.Z)))/2
+                ) *
+                Matrix.CreateRotationY((MathHelper.Lerp(-(float)Math.PI, (float)Math.PI, ruedasDirVel)+ (float)Math.PI/2)/8);
             velocidad -= velocidad * new Vector3(1, 0, 1) * 3 * (float)gameTime.ElapsedGameTime.TotalSeconds;
 
             CarPosicion += velocidad + velocidadV;
@@ -561,13 +582,25 @@ namespace TGC.MonoGame.TP
             CarEffect.Parameters["View"].SetValue(FollowCamera.View);
             CarEffect.Parameters["Projection"].SetValue(FollowCamera.Projection);
 
-            foreach (var mesh in CarModel.Meshes)
+            /*foreach (var mesh in CarModel.Meshes)
             {
                 var Mesh = mesh.ParentBone.Transform;
                 CarEffect.Parameters["World"].SetValue(Mesh * Matrix.CreateScale(0.1f) * CarWorldPhysics);
                 mesh.Draw();
+            }*/
+            //Dibujar auto
+            var carmesh = CarModel.Meshes[0];
+            var carMesh = carmesh.ParentBone.Transform;
+            CarEffect.Parameters["World"].SetValue(carMesh * Matrix.CreateScale(0.1f) * CarWorldPhysics);
+            carmesh.Draw();
+            //Dibujar ruedas
+            for (int i = 1; i<5;i++)
+            {
+                var mesh = CarModel.Meshes[i];
+                var Mesh = mesh.ParentBone.Transform;
+                CarEffect.Parameters["World"].SetValue(ruedaRotacion * Mesh * Matrix.CreateScale(0.1f)  * CarWorldPhysics );
+                mesh.Draw();
             }
-
 
             //foreach (var mesh in CombatVehicleModel.Meshes)
             //{
@@ -635,6 +668,10 @@ namespace TGC.MonoGame.TP
         }
 
         float getAngle(Vector3 dir)
+        {
+            return (float)Math.Atan2(dir.X, dir.Z);
+        }
+        float getAngle(Quaternion dir)
         {
             return (float)Math.Atan2(dir.X, dir.Z);
         }
